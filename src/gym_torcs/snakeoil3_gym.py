@@ -180,7 +180,7 @@ class Client():
                         os.system('torcs -nofuel -nodamage -nolaptime -vision &')
 
                     time.sleep(1.0)
-                    os.system('sh autostart.sh')
+                    autostart_torcs()
                     n_fail = 5
                 n_fail -= 1
 
@@ -572,3 +572,7 @@ if __name__ == "__main__":
         drive_example(C)
         C.respond_to_server()
     C.shutdown()
+
+
+def autostart_torcs():
+    os.system('sh gym_torcs/autostart.sh')
