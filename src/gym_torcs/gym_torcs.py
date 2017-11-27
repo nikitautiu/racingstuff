@@ -101,7 +101,6 @@ class TorcsEnv(object):
         else:
             #  Automatic Gear Change by Snakeoil is possible
             action_torcs['gear'] = 1
-            """
             if client.S.d['speedX'] > 50:
                 action_torcs['gear'] = 2
             if client.S.d['speedX'] > 80:
@@ -112,7 +111,6 @@ class TorcsEnv(object):
                 action_torcs['gear'] = 5
             if client.S.d['speedX'] > 170:
                 action_torcs['gear'] = 6
-            """
 
         # Save the privious full-obs from torcs for the reward calculation
         obs_pre = copy.deepcopy(client.S.d)
@@ -212,15 +210,14 @@ class TorcsEnv(object):
         time.sleep(0.5)
 
     def agent_to_torcs(self, u):
-        torcs_action = {'steer': u[0]}
-
-        if self.throttle is True:  # throttle action is enabled
-            torcs_action.update({'accel': u[1]})
-
-        if self.gear_change is True:  # gear change action is enabled
-            torcs_action.update({'gear': u[2]})
-
-        return torcs_action
+        # torcs_action = {'steer': u[0]}
+        #
+        # if self.throttle is True:  # throttle action is enabled
+        #     torcs_action.update({'accel': u[1]})
+        #
+        # if self.gear_change is True:  # gear change action is enabled
+        #     torcs_action.update({'gear': u[2]})
+        return u
 
     def obs_vision_to_image_rgb(self, obs_image_vec):
         image_vec = obs_image_vec

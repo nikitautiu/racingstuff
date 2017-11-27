@@ -9,6 +9,8 @@ class Agent(object):
     def act(self, ob, reward, done, vision_on=False):
         print(ob)
 
+
+
         # Get an Observation from the environment.
         # Each observation vectors are numpy array.
         # focus, opponents, track sensors are scaled into [0, 1]. When the agent
@@ -19,7 +21,7 @@ class Agent(object):
         if vision_on is False:
             focus, speedX, speedY, speedZ, opponents, rpm, track, wheelSpinVel, raw = ob
         else:
-            focus, speedX, speedY, speedZ, opponents, rpm, track, wheelSpinVel, vision, raw = ob
+            [focus, speedX, speedY, speedZ, opponents, rpm, track, wheelSpinVel, vision, raw] = ob
 
             """ The code below is for checking the vision input. This is very heavy for real-time Control
                 So you may need to remove.
@@ -28,17 +30,20 @@ class Agent(object):
             for i in range(3):
                 img[:, :, i] = 255 - vision[:, i].reshape((64, 64))
 
-            plt.imshow(img, origin='lower')
+            plt.imshow(img, origin='lower') 
             plt.draw()
             plt.pause(0.001)
             """
-        return np.tanh(np.random.randn(self.dim_action)) # random action
+        currentTrackPos = ob.raw['trackPos']
+        lr = currentTrackPos * - 0.5 / speedX
+
+        return {'steer': lr}
 
 
 def main():
     # Generate a Torcs environment
     # enable vision input, the action is steering only (1 dim continuous action)
-    env = TorcsEnv(vision=False, throttle=False)
+    env = TorcsEnv(vision=False, throttle=False, gear_change=False)
 
     # without vision input, the action is steering and throttle (2 dim continuous action)
     # env = TorcsEnv(vision=False, throttle=True)
@@ -50,7 +55,7 @@ def main():
     agent = Agent(1)  # steering only
     for i in range(10):
         ob = env.reset(relaunch=False)  # with torcs relaunch (avoid memory leak bug in torcs)
-        for _ in range(100):
+        for _ in range(100000000000):
             action = agent.act(ob, None, None, vision_on=False)
 
             # single step
