@@ -575,4 +575,15 @@ if __name__ == "__main__":
 
 
 def autostart_torcs():
-    os.system('sh gym_torcs/autostart.sh')
+    """Starts a torcs race by sending key inputs"""
+    os.system("""xte 'key Return'
+                 xte 'usleep 100000'
+                 xte 'key Return'
+                 xte 'usleep 100000'
+                 xte 'key Up'
+                 xte 'usleep 100000'
+                 xte 'key Up'
+                 xte 'usleep 100000'
+                 xte 'key Return'
+                 xte 'usleep 100000'
+                 xte 'key Return'""")
