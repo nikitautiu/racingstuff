@@ -1,14 +1,48 @@
-import collections as col
 import copy
 import os
 import time
 
+import gym
 import numpy as np
 from gym import spaces
 
 # from os import path
 import gym_torcs.snakeoil3_gym as snakeoil3
-from gym_torcs.snakeoil3_gym import autostart_torcs
+
+# default observation fields
+DEFAULT_FIELDS = ['focus',
+                  'speedX',
+                  'speedY',
+                  'speedZ',
+                  'opponents',
+                  'rpm',
+                  'track',
+                  'wheelSpinVel',
+                  'angle']
+
+# intervals for the values
+OBS_SPACE_DEF = {
+    'focus': (0., 1., (5,)),
+    'speedX': (-np.inf, np.inf, (1,)),
+    'speedY': (-np.inf, np.inf, (1,)),
+    'speedZ': (-np.inf, np.inf, (1,)),
+    'opponents': (0., 1., (36,)),
+    'rpm': (0., np.inf, (1,)),
+    'track': (0., 1., (19,)),
+    'wheelSpinVel': (0., np.inf, (4,)),
+    'angle': (-np.pi, np.pi, (1,)),
+    'distFromStart': (0., np.inf, (1,)),
+    'trackPos': (-1., 1., (1,))
+}
+
+
+def make_observation_space(obs_fields):
+    """Given a list of fields toa be included in the observation, generate the observation space"""
+    definitions = [OBS_SPACE_DEF[field] for field in obs_fields]
+    return gym.spaces.Box(low=np.concatenate([np.full(definition[2], definition[0], dtype=np.float32)
+                                              for definition in definitions]),
+                          high=np.concatenate([np.full(definition[2], definition[1], dtype=np.float32)
+                                               for definition in definitions]))
 
 
 class TorcsEnv(object):
@@ -18,9 +52,11 @@ class TorcsEnv(object):
 
     initial_reset = True
 
-    def __init__(self, vision=False, throttle=False, gear_change=False):
+    def __init__(self, throttle=False, gear_change=False, obs_fields=DEFAULT_FIELDS, reset_on_damage=True):
         # print("Init")
-        self.vision = vision
+        self.reset_on_damage = reset_on_damage
+        self.obs_fields = obs_fields
+        self.vision = 'img' in self.obs_fields
         self.throttle = throttle
         self.gear_change = gear_change
 
@@ -29,13 +65,9 @@ class TorcsEnv(object):
         ##print("launch torcs")
         os.system('pkill torcs')
         time.sleep(0.5)
-        if self.vision is True:
-            os.system('torcs -nofuel -nodamage -nolaptime  -vision &')
-        else:
-            os.system('torcs  -nofuel -nodamage -nolaptime &')
+        self.start_torcs()
         time.sleep(0.5)
-        autostart_torcs()
-        time.sleep(0.5)
+        self.autostart()
 
         """
         # Modify here if you use multiple tracks in the environment
@@ -52,14 +84,28 @@ class TorcsEnv(object):
         else:
             self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,))
 
-        if vision is False:
-            high = np.array([1., np.inf, np.inf, np.inf, 1., np.inf, 1., np.inf])
-            low = np.array([0., -np.inf, -np.inf, -np.inf, 0., -np.inf, 0., -np.inf])
-            self.observation_space = spaces.Box(low=low, high=high)
+        self.observation_space = make_observation_space(self.obs_fields)
+
+    def start_torcs(self):
+        if self.vision is True:
+            os.system('torcs -nofuel -nolaptime  -vision &')
         else:
-            high = np.array([1., np.inf, np.inf, np.inf, 1., np.inf, 1., np.inf, 255])
-            low = np.array([0., -np.inf, -np.inf, -np.inf, 0., -np.inf, 0., -np.inf, 0])
-            self.observation_space = spaces.Box(low=low, high=high)
+            os.system('torcs -nofuel -nolaptime &')
+
+    def autostart(self):
+        os.system("""#!/bin/bash
+        xte 'key Return'
+        xte 'usleep 100000'
+        xte 'key Return'
+        xte 'usleep 100000'
+        xte 'key Up'
+        xte 'usleep 100000'
+        xte 'key Up'
+        xte 'usleep 100000'
+        xte 'key Return'
+        xte 'usleep 100000'
+        xte 'key Return'""")
+        time.sleep(0.5)
 
     def step(self, u):
         # print("Step")
@@ -101,6 +147,7 @@ class TorcsEnv(object):
         else:
             #  Automatic Gear Change by Snakeoil is possible
             action_torcs['gear'] = 1
+
             if client.S.d['speedX'] > 50:
                 action_torcs['gear'] = 2
             if client.S.d['speedX'] > 80:
@@ -127,40 +174,50 @@ class TorcsEnv(object):
         # Make an obsevation from a raw observation vector from TORCS
         self.observation = self.make_observaton(obs)
 
-        # Reward setting Here #######################################
-        # direction-dependent positive reward
-        track = np.array(obs['track'])
-        sp = np.array(obs['speedX'])
-        progress = sp * np.cos(obs['angle'])
-        reward = progress
+        done, reward = self._compute_reward_termination(obs, obs_pre)
 
-        # collision detection
-        if obs['damage'] - obs_pre['damage'] > 0:
-            reward = -1
-
-        # Termination judgement #########################
-        episode_terminate = False
-        if track.min() < 0:  # Episode is terminated if the car is out of track
-            reward = - 1
-            episode_terminate = True
-            client.R.d['meta'] = True
-
-        if self.terminal_judge_start < self.time_step:  # Episode terminates if the progress of agent is small
-            if progress < self.termination_limit_progress:
-                episode_terminate = True
-                client.R.d['meta'] = True
-
-        if np.cos(obs['angle']) < 0:  # Episode is terminated if the agent runs backward
-            episode_terminate = True
-            client.R.d['meta'] = True
-
+        # decide whether to stop the simulation
+        client.R.d['meta'] = done
         if client.R.d['meta'] is True:  # Send a reset signal
             self.initial_run = False
             client.respond_to_server()
 
         self.time_step += 1
 
-        return self.get_obs(), reward, client.R.d['meta'], {}
+        # return the raw obs as the last param
+        return self.get_obs(), reward, client.R.d['meta'], obs
+
+    def _compute_reward_termination(self, obs, obs_pre):
+        """Compute the reward and wether the simulation is really done"""
+        # Reward setting Here #######################################
+        # direction-dependent positive reward
+        track = np.array(obs['track'])
+        sp = np.array(obs['speedX'])
+        progress = sp * np.cos(obs['angle'])
+        reward = progress
+        # collision detection
+
+        done = False
+        if obs['damage'] - obs_pre['damage'] > 0:
+            reward = -1000
+            if self.reset_on_damage:
+                done = True
+
+        # Termination judgement #########################
+        if track.min() < 0:  # Episode is terminated if the car is out of track
+            done = True
+            reward = -1000
+
+        if self.terminal_judge_start < self.time_step:  # Episode terminates if the progress of agent is small
+            if progress < self.termination_limit_progress:
+                done = True
+                reward = -1000
+
+        if np.cos(obs['angle']) < 0:  # Episode is terminated if the agent runs backward
+            done = True
+            reward = -1000
+
+        return done, reward
 
     def reset(self, relaunch=False):
         # print("Reset")
@@ -191,6 +248,9 @@ class TorcsEnv(object):
         self.initial_reset = False
         return self.get_obs()
 
+    def close(self):
+        self.end()
+
     def end(self):
         os.system('pkill torcs')
 
@@ -201,29 +261,26 @@ class TorcsEnv(object):
         # print("relaunch torcs")
         os.system('pkill torcs')
         time.sleep(0.5)
-        if self.vision is True:
-            os.system('torcs -nofuel -nodamage -nolaptime -vision &')
-        else:
-            os.system('torcs -nofuel -nodamage -nolaptime &')
+        self.start_torcs()
         time.sleep(0.5)
-        autostart_torcs()
-        time.sleep(0.5)
+        self.autostart()
 
     def agent_to_torcs(self, u):
-        # torcs_action = {'steer': u[0]}
-        #
-        # if self.throttle is True:  # throttle action is enabled
-        #     torcs_action.update({'accel': u[1]})
-        #
-        # if self.gear_change is True:  # gear change action is enabled
-        #     torcs_action.update({'gear': u[2]})
-        return u
+        torcs_action = {'steer': u[0]}
+
+        if self.throttle:  # throttle action is enabled
+            torcs_action.update({'accel': u[1]})
+
+        if self.gear_change:  # gear change action is enabled
+            torcs_action.update({'gear': u[2]})
+
+        return torcs_action
 
     def obs_vision_to_image_rgb(self, obs_image_vec):
         image_vec = obs_image_vec
         rgb = []
         temp = []
-        # convert size 64x64x3 = 12288 to 64x64=4096 2-D list 
+        # convert size 64x64x3 = 12288 to 64x64=4096 2-D list
         # with rgb values grouped together.
         # Format similar to the observation in openai gym
         for i in range(0, 12286, 3):
@@ -235,44 +292,24 @@ class TorcsEnv(object):
         return np.array(rgb, dtype=np.uint8)
 
     def make_observaton(self, raw_obs):
-
-        if self.vision is False:
-            names = ['focus',
-                     'speedX', 'speedY', 'speedZ',
-                     'opponents',
-                     'rpm',
-                     'track',
-                     'wheelSpinVel']
-            obs_values = dict(focus=np.array(raw_obs['focus'], dtype=np.float32)/200.,
-                               speedX=np.array(raw_obs['speedX'], dtype=np.float32)/self.default_speed,
-                               speedY=np.array(raw_obs['speedY'], dtype=np.float32)/self.default_speed,
-                               speedZ=np.array(raw_obs['speedZ'], dtype=np.float32)/self.default_speed,
-                               opponents=np.array(raw_obs['opponents'], dtype=np.float32)/200.,
-                               rpm=np.array(raw_obs['rpm'], dtype=np.float32),
-                               track=np.array(raw_obs['track'], dtype=np.float32)/200.,
-                               wheelSpinVel=np.array(raw_obs['wheelSpinVel'], dtype=np.float32))
-        else:
-            names = ['focus',
-                     'speedX', 'speedY', 'speedZ',
-                     'opponents',
-                     'rpm',
-                     'track',
-                     'wheelSpinVel'
-                     'img']
-            # Get RGB from observation
-            image_rgb = self.obs_vision_to_image_rgb(raw_obs[names[8]])
-
-            obs_values = dict(focus=np.array(raw_obs['focus'], dtype=np.float32) / 200.,
-                              speedX=np.array(raw_obs['speedX'], dtype=np.float32) / self.default_speed,
-                              speedY=np.array(raw_obs['speedY'], dtype=np.float32) / self.default_speed,
-                              speedZ=np.array(raw_obs['speedZ'], dtype=np.float32) / self.default_speed,
+        processed_vals = dict(focus=np.array(raw_obs['focus'], dtype=np.float32) / 200.,
+                              speedX=np.array([raw_obs['speedX']], dtype=np.float32) / self.default_speed,
+                              speedY=np.array([raw_obs['speedY']], dtype=np.float32) / self.default_speed,
+                              speedZ=np.array([raw_obs['speedZ']], dtype=np.float32) / self.default_speed,
                               opponents=np.array(raw_obs['opponents'], dtype=np.float32) / 200.,
-                              rpm=np.array(raw_obs['rpm'], dtype=np.float32),
+                              rpm=np.array([raw_obs['rpm']], dtype=np.float32),
                               track=np.array(raw_obs['track'], dtype=np.float32) / 200.,
                               wheelSpinVel=np.array(raw_obs['wheelSpinVel'], dtype=np.float32),
-                              img=image_rgb)
+                              angle=np.array([raw_obs['angle']], dtype=np.float32),
+                              distFromStart=np.array([raw_obs['distFromStart']], dtype=np.float32),
+                              trackPos=np.array([raw_obs['trackPos']], dtype=np.float32))
 
-        names.append('raw')
-        obs_values['raw'] = raw_obs  # add raw observation to the returned values
-        Observation = col.namedtuple('Observation', names)
-        return Observation(**obs_values)
+        if self.vision:
+            # if image is specified, add it, otherwise no, too expensive to compute
+            image_rgb = self.obs_vision_to_image_rgb(raw_obs['img'])
+
+            processed_vals['img'] = image_rgb
+
+        # only return the needed fields
+        observations = [processed_vals[name] for name in self.obs_fields]
+        return np.concatenate(observations)

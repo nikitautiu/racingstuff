@@ -9,8 +9,6 @@ class Agent(object):
     def act(self, ob, reward, done, vision_on=False):
         print(ob)
 
-
-
         # Get an Observation from the environment.
         # Each observation vectors are numpy array.
         # focus, opponents, track sensors are scaled into [0, 1]. When the agent
@@ -19,9 +17,9 @@ class Agent(object):
         # vision is given as a tensor with size of (64*64, 3) = (4096, 3) <-- rgb
         # and values are in [0, 255]
         if vision_on is False:
-            focus, speedX, speedY, speedZ, opponents, rpm, track, wheelSpinVel, raw = ob
+            focus, speedX, speedY, speedZ, opponents, rpm, track, wheelSpinVel = ob
         else:
-            [focus, speedX, speedY, speedZ, opponents, rpm, track, wheelSpinVel, vision, raw] = ob
+            [focus, speedX, speedY, speedZ, opponents, rpm, track, wheelSpinVel, vision] = ob
 
             """ The code below is for checking the vision input. This is very heavy for real-time Control
                 So you may need to remove.
@@ -34,8 +32,7 @@ class Agent(object):
             plt.draw()
             plt.pause(0.001)
             """
-        currentTrackPos = ob.raw['trackPos']
-        lr = currentTrackPos * - 0.5 / speedX
+        lr = track[] * - 0.5 / speedX
 
         return {'steer': lr}
 
