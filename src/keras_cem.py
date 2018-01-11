@@ -9,16 +9,26 @@ from gym_torcs.gym_torcs import TorcsEnv
 
 
 class ActionDiscretizer(Processor):
-    def __init__(self, bins):
+    def __init__(self, bins, throttle=False):
+        self.throttle = throttle
         self.bins = bins
 
     def process_action(self, action):
         """Make from a discrete action, a continuous one"""
         if action.shape == ():
-            action = np.array([-1. + action * 2. / self.bins], dtype=np.float32)
+            if self.throttle:
+                steer_act = int(action) // self.bins
+                accel_act = int(action) % self.bins
+                action = np.array([-1. + steer_act * 2. / self.bins, -1. + accel_act * 2. / self.bins], dtype=np.float32)
+            else:
+                action = np.array([-1. + action * 2. / self.bins], dtype=np.float32)
+            return action
+
         return action
 
     def process_info(self, info):
+
+
         return {}
 
 
@@ -26,7 +36,10 @@ class ActionDiscretizer(Processor):
 env = TorcsEnv(throttle=False, obs_fields=['speedX',
                                            'speedY',
                                            'speedZ',
-                                           'trackPos'])
+                                           'track',
+                                           'focus',
+                                           'trackPos',
+                                           'angle'])
 
 obs_dim = env.observation_space.shape[0]
 nb_actions = 16
@@ -40,6 +53,12 @@ nb_actions = 16
 # Option 2: deep network
 model = Sequential()
 model.add(Flatten(input_shape=(1,) + env.observation_space.shape))
+model.add(Dense(70))
+model.add(Activation('relu'))
+model.add(Dense(16))
+model.add(Activation('relu'))
+model.add(Dense(16))
+model.add(Activation('relu'))
 model.add(Dense(16))
 model.add(Activation('softmax'))
 
@@ -51,8 +70,8 @@ print(model.summary())
 memory = EpisodeParameterMemory(limit=1000, window_length=1)
 
 cem = CEMAgent(model=model, nb_actions=nb_actions, memory=memory,
-               batch_size=20, nb_steps_warmup=0, train_interval=200, elite_frac=0.1,
-               processor=ActionDiscretizer(nb_actions))
+               batch_size=500, nb_steps_warmup=0, train_interval=500, elite_frac=0.1,
+               processor=ActionDiscretizer(16, False))
 cem.compile()
 # cem.load_weights('cem_{}_params.h5f'.format('aaa'))
 # Okay, now it's time to learn something! We visualize the training here for show, but this
@@ -61,7 +80,7 @@ cem.compile()
 cem.fit(env, nb_steps=100000, visualize=False, verbose=2)
 
 # After training is done, we save the best weights.
-# cem.save_weights('cem_{}_params.h5f'.format('aaa'), overwrite=True)
+cem.save_weights('cem_{}_params.h5f'.format('aaa'), overwrite=True)
 
 # Finally, evaluate our algorithm for 5 episodes.
 cem.test(env, nb_episodes=5, visualize=False)
