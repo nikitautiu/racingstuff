@@ -123,7 +123,7 @@ def bargraph(x, mn, mx, w, c='X'):
 
 
 class Client():
-    def __init__(self, H=None, p=None, i=None, e=None, t=None, s=None, d=None, vision=False):
+    def __init__(self, H=None, p=None, i=None, e=None, t=None, s=None, d=None, vision=False, start_torcs=False):
         # If you don't like the option defaults,  change them here.
         self.vision = vision
 
@@ -143,6 +143,11 @@ class Client():
         if t: self.trackname = t
         if s: self.stage = s
         if d: self.debug = d
+
+        # restart the client(or initially start it at least
+        if start_torcs:
+            self.restart_game()
+
         self.S = ServerState()
         self.R = DriverAction()
         self.setup_connection()
@@ -175,30 +180,12 @@ class Client():
                 sockdata, addr = self.so.recvfrom(data_size)
                 sockdata = sockdata.decode('utf-8')
             except socket.error as emsg:
+                # restart the game in case of error
+                # especially when losing sync with its
                 print("Waiting for server on %d............" % self.port)
                 print("Count Down : " + str(n_fail))
                 if n_fail < 0:
-                    print("relaunch torcs")
-                    os.system('pkill torcs')
-                    time.sleep(1.0)
-                    if self.vision is False:
-                        os.system('torcs -nofuel  -nolaptime &')
-                    else:
-                        os.system('torcs -nofuel -nolaptime -vision &')
-
-                    time.sleep(1.0)
-                    os.system("""#!/bin/bash
-                            xte 'key Return'
-                            xte 'usleep 100000'
-                            xte 'key Return'
-                            xte 'usleep 100000'
-                            xte 'key Up'
-                            xte 'usleep 100000'
-                            xte 'key Up'
-                            xte 'usleep 100000'
-                            xte 'key Return'
-                            xte 'usleep 100000'
-                            xte 'key Return'""")
+                    self.restart_game()
                     n_fail = 5
                 n_fail -= 1
 
@@ -206,6 +193,14 @@ class Client():
             if identify in sockdata:
                 print("Client connected on %d.............." % self.port)
                 break
+
+    def restart_game(self):
+        print("relaunch torcs")
+        os.system('pkill torcs')
+        time.sleep(1.0)
+        start_torcs(self.vision)
+        time.sleep(1.0)
+        autostart()
 
     def parse_the_command_line(self):
         try:
@@ -342,7 +337,7 @@ class ServerState():
             # 'lastLapTime',
             'stucktimer',
             # 'damage',
-            # 'focus',
+            'focus',
             'fuel',
             # 'gear',
             'distRaced',
@@ -604,3 +599,26 @@ if __name__ == "__main__":
         drive_example(C)
         C.respond_to_server()
     C.shutdown()
+
+
+def start_torcs(vision):
+    if vision is True:
+        os.system('torcs -nofuel -nolaptime  -vision &')
+    else:
+        os.system('torcs -nofuel -nolaptime &')
+
+
+def autostart():
+    os.system("""#!/bin/bash
+    xte 'key Return'
+    xte 'usleep 100000'
+    xte 'key Return'
+    xte 'usleep 100000'
+    xte 'key Up'
+    xte 'usleep 100000'
+    xte 'key Up'
+    xte 'usleep 100000'
+    xte 'key Return'
+    xte 'usleep 100000'
+    xte 'key Return'""")
+    time.sleep(0.5)

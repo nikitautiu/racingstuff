@@ -1,6 +1,5 @@
 import copy
 import os
-import time
 
 import gym
 import numpy as np
@@ -10,6 +9,7 @@ from gym import spaces
 import gym_torcs.snakeoil3_gym as snakeoil3
 
 # default observation fields
+
 DEFAULT_FIELDS = ['focus',
                   'speedX',
                   'speedY',
@@ -32,7 +32,8 @@ OBS_SPACE_DEF = {
     'wheelSpinVel': (0., np.inf, (4,)),
     'angle': (-np.pi, np.pi, (1,)),
     'distFromStart': (0., np.inf, (1,)),
-    'trackPos': (-1., 1., (1,))
+    'trackPos': (-1., 1., (1,)),
+    'gear': (-1., 6., (1,))
 }
 
 
@@ -62,50 +63,14 @@ class TorcsEnv(object):
 
         self.initial_run = True
 
-        ##print("launch torcs")
-        os.system('pkill torcs')
-        time.sleep(0.5)
-        self.start_torcs()
-        time.sleep(0.5)
-        self.autostart()
+        self.create_client()
 
-        """
-        # Modify here if you use multiple tracks in the environment
-        self.client = snakeoil3.Client(p=3101, vision=self.vision)  # Open new UDP in vtorcs
-        self.client.MAX_STEPS = np.inf
-
-        client = self.client
-        client.get_servers_input()  # Get the initial input from torcs
-
-        obs = client.S.d  # Get the current full-observation from torcs
-        """
         if throttle is False:
             self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,))
         else:
             self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,))
 
         self.observation_space = make_observation_space(self.obs_fields)
-
-    def start_torcs(self):
-        if self.vision is True:
-            os.system('torcs -nofuel -nolaptime  -vision &')
-        else:
-            os.system('torcs -nofuel -nolaptime &')
-
-    def autostart(self):
-        os.system("""#!/bin/bash
-        xte 'key Return'
-        xte 'usleep 100000'
-        xte 'key Return'
-        xte 'usleep 100000'
-        xte 'key Up'
-        xte 'usleep 100000'
-        xte 'key Up'
-        xte 'usleep 100000'
-        xte 'key Return'
-        xte 'usleep 100000'
-        xte 'key Return'""")
-        time.sleep(0.5)
 
     def step(self, u):
         # print("Step")
@@ -175,6 +140,8 @@ class TorcsEnv(object):
         self.observation = self.make_observaton(obs)
 
         done, reward = self._compute_reward_termination(obs, obs_pre)
+        done = done or (
+        self.time_step + 10 > self.client.maxSteps)  # a bit of leeway, prevents the server shutting down
 
         # decide whether to stop the simulation
         client.R.d['meta'] = done
@@ -233,9 +200,7 @@ class TorcsEnv(object):
                 self.reset_torcs()
                 print("### TORCS is RELAUNCHED ###")
 
-        # Modify here if you use multiple tracks in the environment
-        self.client = snakeoil3.Client(p=3101, vision=self.vision)  # Open new UDP in vtorcs
-        self.client.MAX_STEPS = np.inf
+        self.create_client()
 
         client = self.client
         client.get_servers_input()  # Get the initial input from torcs
@@ -248,6 +213,11 @@ class TorcsEnv(object):
         self.initial_reset = False
         return self.get_obs()
 
+    def create_client(self, start_game=False):
+        """Creates a client with the given settings"""
+        self.client = snakeoil3.Client(p=3101, vision=self.vision, start_torcs=start_game)  # Open new UDP in vtorcs
+        self.client.MAX_STEPS = 100000
+
     def close(self):
         self.end()
 
@@ -258,12 +228,7 @@ class TorcsEnv(object):
         return self.observation
 
     def reset_torcs(self):
-        # print("relaunch torcs")
-        os.system('pkill torcs')
-        time.sleep(0.5)
-        self.start_torcs()
-        time.sleep(0.5)
-        self.autostart()
+        self.client.restart_game()
 
     def agent_to_torcs(self, u):
         torcs_action = {'steer': u[0]}
@@ -297,12 +262,13 @@ class TorcsEnv(object):
                               speedY=np.array([raw_obs['speedY']], dtype=np.float32) / self.default_speed,
                               speedZ=np.array([raw_obs['speedZ']], dtype=np.float32) / self.default_speed,
                               opponents=np.array(raw_obs['opponents'], dtype=np.float32) / 200.,
-                              rpm=np.array([raw_obs['rpm']], dtype=np.float32),
+                              rpm=np.array([raw_obs['rpm']], dtype=np.float32) / 5000,
                               track=np.array(raw_obs['track'], dtype=np.float32) / 200.,
                               wheelSpinVel=np.array(raw_obs['wheelSpinVel'], dtype=np.float32),
                               angle=np.array([raw_obs['angle']], dtype=np.float32),
                               distFromStart=np.array([raw_obs['distFromStart']], dtype=np.float32),
-                              trackPos=np.array([raw_obs['trackPos']], dtype=np.float32))
+                              trackPos=np.array([raw_obs['trackPos']], dtype=np.float32),
+                              gear=np.array([raw_obs['gear']], dtype=np.float32) / 6)
 
         if self.vision:
             # if image is specified, add it, otherwise no, too expensive to compute
