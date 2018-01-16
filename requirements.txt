@@ -1,0 +1,7 @@
+numpy==1.14.0
+gym==0.9.4
+keras==2.1.2
+matplotlib==2.1.1
+rl==2.4
+keras-rl==0.4.0
+tensorflow>=1.4.1

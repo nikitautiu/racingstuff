@@ -134,8 +134,8 @@ class Client():
         self.trackname = 'unknown'
         self.stage = 3  # 0=Warm-up, 1=Qualifying 2=Race, 3=unknown <Default=3>
         self.debug = False
-        self.maxSteps = 100000  # 50steps/second
-        self.parse_the_command_line()
+        self.maxSteps = 30000  # 50steps/second
+        # self.parse_the_command_line()
         if H: self.host = H
         if p: self.port = p
         if i: self.sid = i
