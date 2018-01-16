@@ -1,0 +1,2 @@
+TORCS_BASE = /mnt/data/Documents/gym_torcs/vtorcs-RL-color
+MAKE_DEFAULT = /mnt/data/Documents/gym_torcs/vtorcs-RL-color/Make-default.mk
